@@ -53,7 +53,7 @@ struct pvr_trcmd_syn {
 struct pvr_trcmd_sgxkick {
 	struct pvr_trcmd_syn	tatq_syn;
 	struct pvr_trcmd_syn	_3dtq_syn;
-	struct pvr_trcmd_syn	src_syn[SGX_MAX_SRC_SYNCS];
+	struct pvr_trcmd_syn	src_syn[SGX_MAX_SRC_SYNCS_TA];
 	struct pvr_trcmd_syn	dst_syn;
 	struct pvr_trcmd_syn	ta3d_syn;
 	unsigned long		ctx;

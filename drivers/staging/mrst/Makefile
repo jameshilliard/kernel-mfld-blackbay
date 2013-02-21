@@ -4,7 +4,7 @@ ccflags-y += \
 	-I$(srctree)/$(src)/imgv \
 	-I$(srctree)/$(src)/pvr \
 	-I$(srctree)/$(src)/pvr/include4 \
-	-I$(srctree)/$(src)/pvr/services4/3rdparty/linux_framebuffer_mrst \
+	-I$(srctree)/$(src)/pvr/services4/3rdparty/linux_framebuffer_drm \
 	-I$(srctree)/$(src)/pvr/services4/include \
 	-I$(srctree)/$(src)/pvr/services4/include/env/linux \
 	-I$(srctree)/$(src)/pvr/services4/srvkm/bridged \
@@ -27,14 +27,16 @@ ccflags-y += \
 	-DDISPLAY_CONTROLLER=mrstlfb \
 	-DLINUX \
 	-DPVR2D_VALIDATE_INPUT_PARAMS \
+	-DPVRSRV_MODNAME="\"pvrsrvkm\"" \
 	-DPVR_BUILD_DIR="\"pc_i686_moorestown_linux\"" \
 	-DPVR_LINUX_MISR_USING_PRIVATE_WORKQUEUE \
-	-DPVR_LINUX_MISR_USING_WORKQUEUE \
 	-DPVR_LINUX_TIMERS_USING_WORKQUEUES \
 	-DPVR_LINUX_USING_WORKQUEUES \
 	-DPVR_PROC_USE_SEQ_FILE \
+	-DDRM_PVR_USE_INTEL_FB \
 	-DPVR_SECURE_HANDLES \
 	-DSERVICES4 \
+	-DLDM_PCI \
 	-DSUPPORT_ACTIVE_POWER_MANAGEMENT \
 	-DSUPPORT_CACHE_LINE_FLUSH \
 	-DSUPPORT_CPU_CACHED_BUFFERS \
@@ -48,31 +50,38 @@ ccflags-y += \
 	-DSUPPORT_SGX \
 	-DSUPPORT_SGX_EVENT_OBJECT \
 	-DSUPPORT_SGX_HWPERF \
+	-DSUPPORT_PVRSRV_GET_DC_SYSTEM_BUFFER \
 	-DSUPPORT_SGX_LOW_LATENCY_SCHEDULING \
 	-DSUPPORT_SGX_NEW_STATUS_VALS \
 	-DSUPPORT_SRVINIT \
 	-DSYS_USING_INTERRUPTS \
 	-DTRANSFER_QUEUE \
-	-DLDM_PCI \
 	-DUSE_PTHREADS \
 	-D_XOPEN_SOURCE=600 \
 	-UDEBUG_LOG_PATH_TRUNCATE
+	#-DSYS_CUSTOM_POWERLOCK_WRAP \
+	#-DPVR_LINUX_MISR_USING_WORKQUEUE \
+	#-DPVRSRV_USSE_EDM_STATUS_DEBUG \
 
-ccflags-$(CONFIG_PVR_ABI_RELEASE) += \
-	-DBUILD="\"release\"" \
-	-DPVR_BUILD_TYPE="\"release\"" \
-	-DRELEASE
+#ccflags-$(CONFIG_PVR_ABI_RELEASE) += \
 
-ccflags-$(CONFIG_PVR_ABI_DEBUG) += \
+#ccflags-y += \
+	#-DBUILD="\"release\"" \
+	#-DPVR_BUILD_TYPE="\"release\"" \
+	#-DRELEASE
+
+#ccflags-$(CONFIG_PVR_ABI_DEBUG) += \
+
+ccflags-y += \
 	-DBUILD="\"debug\"" \
 	-DPVR_BUILD_TYPE="\"debug\"" \
 	-DPVR_DEBUG_EXT \
 	-DDEBUG_BRIDGE_KM \
-	-DDEBUG_LINUX_MEMORY_ALLOCATIONS \
-	-DDEBUG_LINUX_MEM_AREAS \
-	-DDEBUG_LINUX_MMAP_AREAS
+	#-DDEBUG_LINUX_MEMORY_ALLOCATIONS \
+	#-DDEBUG_LINUX_MEM_AREAS \
+	#-DDEBUG_LINUX_MMAP_AREAS
 
-ccflags-$(CONFIG_PVR_DEBUG) += -DDEBUG
+#ccflags-$(CONFIG_PVR_DEBUG) += -DDEBUG
 ccflags-$(CONFIG_PCI_MSI) += -DCONFIG_PCI_MSI
 ccflags-$(CONFIG_MDFD_GL3) += -DSUPPORT_EXTERNAL_SYSTEM_CACHE
 
@@ -93,14 +102,14 @@ ENVDIR = pvr/services4/srvkm/env/linux
 COMMONDIR = pvr/services4/srvkm/common
 BRIDGEDDIR = pvr/services4/srvkm/bridged
 SGXDIR = pvr/services4/srvkm/devices/sgx
-FBDEVDIR = pvr/services4/3rdparty/linux_framebuffer_mrst
+FBDEVDIR = pvr/services4/3rdparty/linux_framebuffer_drm
 DRMDRVDIR = drv
 SYSCONFIGDIR = pvr/services4/system/unified
 IMGVDIR = imgv
 BUFFER_CLASS_DIR = bc_video
 
-medfield_gfx-y += \
-	$(PVRDIR)/pvr_debug_core.o
+#medfield_gfx-y += \
+	#$(PVRDIR)/pvr_debug_core.o
 
 medfield_gfx-y += \
 	$(ENVDIR)/event.o \
@@ -158,8 +167,8 @@ medfield_gfx-y += \
 	$(SGXDIR)/sgxutils.o
 
 medfield_gfx-y += \
-	$(FBDEVDIR)/mrstlfb_displayclass.o \
-	$(FBDEVDIR)/mrstlfb_linux.o
+	$(FBDEVDIR)/drmlfb_displayclass.o \
+	$(FBDEVDIR)/drmlfb_linux.o
 
 medfield_gfx-y += \
 	$(DRMDRVDIR)/drm_flip.o \
@@ -216,7 +225,7 @@ medfield_gfx-y += \
 medfield_gfx-$(CONFIG_MDFLD_DSI_DPU) += $(DRMDRVDIR)/mdfld_dsi_dbi_dpu.o
 medfield_gfx-$(CONFIG_MDFD_GL3) += $(DRMDRVDIR)/mdfld_gl3.o
 
-medfield_gfx-$(CONFIG_DEBUG_FS) += $(PVRDIR)/pvr_debugfs.o
+#medfield_gfx-$(CONFIG_DEBUG_FS) += $(PVRDIR)/pvr_debugfs.o
 medfield_gfx-$(CONFIG_PVR_TRACE_CMD) += $(PVRDIR)/pvr_trace_cmd.o
 
 include $(srctree)/$(src)/drv/otm_hdmi/Makefile

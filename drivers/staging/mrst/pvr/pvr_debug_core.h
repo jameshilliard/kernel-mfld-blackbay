@@ -31,4 +31,6 @@ void sgx_save_registers_no_pwron(PVRSRV_DEVICE_NODE *dev_node,
 int sgx_save_registers(PVRSRV_DEVICE_NODE *dev_node,
 			struct sgx_registers *regs);
 
+IMG_VOID HWRecoveryResetSGX (PVRSRV_DEVICE_NODE *psDeviceNode, IMG_UINT32 ui32Component, IMG_UINT32 ui32CallerID);
+
 #endif

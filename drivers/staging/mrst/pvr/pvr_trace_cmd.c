@@ -19,8 +19,10 @@
  */
 
 #include <linux/vmalloc.h>
+#include <linux/sched.h>
 
 #include "img_types.h"
+#include "services_headers.h"
 #include "resman.h"
 #include "handle.h"
 #include "pvr_trace_cmd.h"
@@ -98,7 +100,7 @@ static size_t trcmd_prn_sgxkick(char *dst, size_t dst_size, const void *tbuf)
 
 	len  = prn_syn("tatq_syn", dst, dst_size, &d->tatq_syn);
 	len += prn_syn("3dtq_syn", &dst[len], dst_size - len, &d->_3dtq_syn);
-	for (i = 0; i < SGX_MAX_SRC_SYNCS; i++) {
+	for (i = 0; i < SGX_MAX_SRC_SYNCS_TA; i++) {
 		char sname[10];
 
 		snprintf(sname, sizeof(sname), "src_syn%d", i);

@@ -1,28 +1,45 @@
-/**********************************************************************
- *
- * Copyright(c) 2008 Imagination Technologies Ltd. All rights reserved.
- * 
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- * 
- * This program is distributed in the hope it will be useful but, except 
- * as otherwise stated in writing, without any warranty; without even the 
- * implied warranty of merchantability or fitness for a particular purpose. 
- * See the GNU General Public License for more details.
- * 
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
- * 
- * The full GNU General Public License is included in this distribution in
- * the file called "COPYING".
- *
- * Contact Information:
- * Imagination Technologies Ltd. <gpl-support@imgtec.com>
- * Home Park Estate, Kings Langley, Herts, WD4 8LZ, UK 
- *
- ******************************************************************************/
+/*************************************************************************/ /*!
+@Title          PVR Bridge Module (kernel side)
+@Copyright      Copyright (c) Imagination Technologies Ltd. All Rights Reserved
+@Description    Receives calls from the user portion of services and
+                despatches them to functions in the kernel portion.
+@License        Dual MIT/GPLv2
+
+The contents of this file are subject to the MIT license as set out below.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+Alternatively, the contents of this file may be used under the terms of
+the GNU General Public License Version 2 ("GPL") in which case the provisions
+of GPL are applicable instead of those above.
+
+If you wish to allow use of your version of this file only under the terms of
+GPL, and not to allow others to use your version of this file under the terms
+of the MIT license, indicate your decision by deleting the provisions above
+and replace them with the notice and other provisions required by GPL as set
+out in the file called "GPL-COPYING" included in this distribution. If you do
+not delete the provisions above, a recipient may use your version of this file
+under the terms of either the MIT license or GPL.
+
+This License is also included in this distribution in the file called
+"MIT-COPYING".
+
+EXCEPT AS OTHERWISE STATED IN A NEGOTIATED AGREEMENT: (A) THE SOFTWARE IS
+PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE AND NONINFRINGEMENT; AND (B) IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/ /**************************************************************************/
 
 #include "img_defs.h"
 #include "services.h"
@@ -35,8 +52,9 @@
 #include "private_data.h"
 #include "linkage.h"
 #include "pvr_bridge_km.h"
-#include "sgx_bridge_km.h"
-#include "sgx_options.h"
+#include "pvr_uaccess.h"
+#include "refcount.h"
+#include "buffer_manager.h"
 
 #if defined(SUPPORT_DRI_DRM)
 #include <drm/drmP.h>
@@ -46,21 +64,17 @@
 #endif
 #endif
 
+/* VGX: */
 #if defined(SUPPORT_VGX)
 #include "vgx_bridge.h"
 #endif
 
+/* SGX: */
 #if defined(SUPPORT_SGX)
 #include "sgx_bridge.h"
 #endif
 
 #include "bridged_pvr_bridge.h"
-
-#ifdef MODULE_TEST
-#include "pvr_test_bridge.h"
-#include "kern_test.h"
-#endif
-
 
 #if defined(SUPPORT_DRI_DRM)
 #define	PRIVATE_DATA(pFile) ((pFile)->driver_priv)
@@ -82,7 +96,7 @@ extern PVRSRV_LINUX_MUTEX gPVRSRVLock;
 
 #if defined(SUPPORT_MEMINFO_IDS)
 static IMG_UINT64 ui64Stamp;
-#endif 
+#endif /* defined(SUPPORT_MEMINFO_IDS) */
 
 PVRSRV_ERROR
 LinuxBridgeInit(IMG_VOID)
@@ -116,6 +130,13 @@ LinuxBridgeDeInit(IMG_VOID)
 
 #if defined(DEBUG_BRIDGE_KM)
 
+/*
+ * Lock MMap regions list (called on page start/stop while reading /proc/mmap)
+ *
+ * sfile : seq_file that handles /proc file
+ * start : TRUE if it's start, FALSE if it's stop
+ *  
+ */
 static void ProcSeqStartstopBridgeStats(struct seq_file *sfile,IMG_BOOL start) 
 {
 	if(start) 
@@ -129,6 +150,16 @@ static void ProcSeqStartstopBridgeStats(struct seq_file *sfile,IMG_BOOL start)
 }
 
 
+/*
+ * Convert offset (index from KVOffsetTable) to element 
+ * (called when reading /proc/mmap file)
+
+ * sfile : seq_file that handles /proc file
+ * off : index into the KVOffsetTable from which to print
+ *  
+ * returns void* : Pointer to element that will be dumped
+ *  
+*/
 static void* ProcSeqOff2ElementBridgeStats(struct seq_file *sfile, loff_t off)
 {
 	if(!off) 
@@ -145,12 +176,28 @@ static void* ProcSeqOff2ElementBridgeStats(struct seq_file *sfile, loff_t off)
 	return (void*)&g_BridgeDispatchTable[off-1];
 }
 
+/*
+ * Gets next MMap element to show. (called when reading /proc/mmap file)
+
+ * sfile : seq_file that handles /proc file
+ * el : actual element
+ * off : index into the KVOffsetTable from which to print
+ *  
+ * returns void* : Pointer to element to show (0 ends iteration)
+*/
 static void* ProcSeqNextBridgeStats(struct seq_file *sfile,void* el,loff_t off)
 {
 	return ProcSeqOff2ElementBridgeStats(sfile,off);
 }
 
 
+/*
+ * Show MMap element (called when reading /proc/mmap file)
+
+ * sfile : seq_file that handles /proc file
+ * el : actual element
+ *  
+*/
 static void ProcSeqShowBridgeStats(struct seq_file *sfile,void* el)
 {
 	PVRSRV_BRIDGE_DISPATCH_TABLE_ENTRY *psEntry = (	PVRSRV_BRIDGE_DISPATCH_TABLE_ENTRY*)el;
@@ -185,86 +232,15 @@ static void ProcSeqShowBridgeStats(struct seq_file *sfile,void* el)
 				   psEntry->ui32CopyToUserTotalBytes);
 }
 
-#endif 
-
-static inline int support_secure_fd_export(void)
-{
-	unsigned long mask;
-
-	PVRSRV_SGXDEV_INFO *dev_info = pvr_get_sgx_dev_info();
-
-	if (!dev_info)
-		return 0;
-
-	mask = 1 << PVR_DISABLE_SECURE_FD_EXPORT_OFFSET;
-
-	return !(dev_info->ui32ClientBuildOptions & mask);
-}
-
-static int secure_fd_export_prepare(int cmd, void *param_in, void *sec_meminfo)
-{
-	if (!support_secure_fd_export())
-		return 0;
-
-	switch (cmd) {
-	case PVRSRV_BRIDGE_EXPORT_DEVICEMEM_2:
-		if (sec_meminfo) {
-			pr_err("pvr: %s: can only export one MemInfo "
-					 "per file descriptor", __func__);
-			return -EINVAL;
-		}
-		break;
-
-	case PVRSRV_BRIDGE_MAP_DEV_MEMORY_2:
-	{
-		PVRSRV_BRIDGE_IN_MAP_DEV_MEMORY *map_devmem_in = param_in;
-
-		if (!sec_meminfo) {
-			pr_err("pvr: %s: file descriptor has no "
-					 "associated MemInfo handle", __func__);
-			return -EINVAL;
-		}
-		map_devmem_in->hKernelMemInfo = sec_meminfo;
-		break;
-	}
-
-	default:
-		if (sec_meminfo) {
-			pr_err("pvr: %s: import/export handle tried "
-					 "to use privileged service", __func__);
-			return -EINVAL;
-		}
-		break;
-	}
-
-	return 0;
-}
-
-static void secure_fd_export_finish(int cmd, void *param_out,
-				void **sec_mem_info, u64 *time_stamp)
-{
-	PVRSRV_BRIDGE_OUT_EXPORTDEVICEMEM *map_devmem_out = param_out;
-
-	if (!support_secure_fd_export())
-		return;
-
-	if (cmd != PVRSRV_BRIDGE_EXPORT_DEVICEMEM_2)
-		return;
-
-	*sec_mem_info = map_devmem_out->hMemInfo;
-
-	ui64Stamp++;
-	*time_stamp = ui64Stamp;
-	map_devmem_out->ui64Stamp = ui64Stamp;
-}
+#endif /* DEBUG_BRIDGE_KM */
 
 
 #if defined(SUPPORT_DRI_DRM)
-IMG_INT
-PVRSRV_BridgeDispatchKM(struct drm_device unref__ *dev, IMG_VOID *arg, struct drm_file *pFile)
+int
+PVRSRV_BridgeDispatchKM(struct drm_device unref__ *dev, void *arg, struct drm_file *pFile)
 #else
-IMG_INT32
-PVRSRV_BridgeDispatchKM(struct file *pFile, IMG_UINT unref__ ioctlCmd, IMG_UINT32 arg)
+long
+PVRSRV_BridgeDispatchKM(struct file *pFile, unsigned int unref__ ioctlCmd, unsigned long arg)
 #endif
 {
 	IMG_UINT32 cmd;
@@ -275,7 +251,6 @@ PVRSRV_BridgeDispatchKM(struct file *pFile, IMG_UINT unref__ ioctlCmd, IMG_UINT3
 	PVRSRV_BRIDGE_PACKAGE *psBridgePackageKM;
 	IMG_UINT32 ui32PID = OSGetCurrentProcessIDKM();
 	PVRSRV_PER_PROCESS_DATA *psPerProc;
-	PVRSRV_FILE_PRIVATE_DATA *priv_data = PRIVATE_DATA(pFile);
 	IMG_INT err = -EFAULT;
 
 	LinuxLockMutex(&gPVRSRVLock);
@@ -296,7 +271,9 @@ PVRSRV_BridgeDispatchKM(struct file *pFile, IMG_UINT unref__ ioctlCmd, IMG_UINT3
 		goto unlock_and_return;
 	}
 	
-	
+	/* FIXME - Currently the CopyFromUserWrapper which collects stats about
+	 * how much data is shifted to/from userspace isn't available to us
+	 * here. */
 	if(OSCopyFromUser(IMG_NULL,
 					  psBridgePackageKM,
 					  psBridgePackageUM,
@@ -308,150 +285,6 @@ PVRSRV_BridgeDispatchKM(struct file *pFile, IMG_UINT unref__ ioctlCmd, IMG_UINT3
 #endif
 
 	cmd = psBridgePackageKM->ui32BridgeID;
-
-#if defined(MODULE_TEST)
-	switch (cmd)
-	{
-		case PVRSRV_BRIDGE_SERVICES_TEST_MEM1:
-			{
-				PVRSRV_ERROR eError = MemTest1();
-				if (psBridgePackageKM->ui32OutBufferSize == sizeof(PVRSRV_BRIDGE_RETURN))
-				{
-					PVRSRV_BRIDGE_RETURN* pReturn = (PVRSRV_BRIDGE_RETURN*)psBridgePackageKM->pvParamOut ;
-					pReturn->eError = eError;
-				}
-			}
-			err = 0;
-			goto unlock_and_return;
-		case PVRSRV_BRIDGE_SERVICES_TEST_MEM2:
-			{
-				PVRSRV_ERROR eError = MemTest2();
-				if (psBridgePackageKM->ui32OutBufferSize == sizeof(PVRSRV_BRIDGE_RETURN))
-				{
-					PVRSRV_BRIDGE_RETURN* pReturn = (PVRSRV_BRIDGE_RETURN*)psBridgePackageKM->pvParamOut ;
-					pReturn->eError = eError;
-				}
-			}
-			err = 0;
-			goto unlock_and_return;
-
-		case PVRSRV_BRIDGE_SERVICES_TEST_RESOURCE:
-			{
-				PVRSRV_ERROR eError = ResourceTest();
-				if (psBridgePackageKM->ui32OutBufferSize == sizeof(PVRSRV_BRIDGE_RETURN))
-				{
-					PVRSRV_BRIDGE_RETURN* pReturn = (PVRSRV_BRIDGE_RETURN*)psBridgePackageKM->pvParamOut ;
-					pReturn->eError = eError;
-				}
-			}
-			err = 0;
-			goto unlock_and_return;
-
-		case PVRSRV_BRIDGE_SERVICES_TEST_EVENTOBJECT:
-			{
-				PVRSRV_ERROR eError = EventObjectTest();
-				if (psBridgePackageKM->ui32OutBufferSize == sizeof(PVRSRV_BRIDGE_RETURN))
-				{
-					PVRSRV_BRIDGE_RETURN* pReturn = (PVRSRV_BRIDGE_RETURN*)psBridgePackageKM->pvParamOut ;
-					pReturn->eError = eError;
-				}
-			}
-			err = 0;
-			goto unlock_and_return;
-
-		case PVRSRV_BRIDGE_SERVICES_TEST_MEMMAPPING:
-			{
-				PVRSRV_ERROR eError = MemMappingTest();
-				if (psBridgePackageKM->ui32OutBufferSize == sizeof(PVRSRV_BRIDGE_RETURN))
-				{
-					PVRSRV_BRIDGE_RETURN* pReturn = (PVRSRV_BRIDGE_RETURN*)psBridgePackageKM->pvParamOut ;
-					pReturn->eError = eError;
-				}
-			}
-			err = 0;
-			goto unlock_and_return;
-
-		case PVRSRV_BRIDGE_SERVICES_TEST_PROCESSID:
-			{
-				PVRSRV_ERROR eError = ProcessIDTest();
-				if (psBridgePackageKM->ui32OutBufferSize == sizeof(PVRSRV_BRIDGE_RETURN))
-				{
-					PVRSRV_BRIDGE_RETURN* pReturn = (PVRSRV_BRIDGE_RETURN*)psBridgePackageKM->pvParamOut ;
-					pReturn->eError = eError;
-				}
-			}
-			err = 0;
-			goto unlock_and_return;
-
-		case PVRSRV_BRIDGE_SERVICES_TEST_CLOCKUSWAITUS:
-			{
-				PVRSRV_ERROR eError = ClockusWaitusTest();
-				if (psBridgePackageKM->ui32OutBufferSize == sizeof(PVRSRV_BRIDGE_RETURN))
-				{
-					PVRSRV_BRIDGE_RETURN* pReturn = (PVRSRV_BRIDGE_RETURN*)psBridgePackageKM->pvParamOut ;
-					pReturn->eError = eError;
-				}
-			}
-			err = 0;
-			goto unlock_and_return;
-
-		case PVRSRV_BRIDGE_SERVICES_TEST_TIMER:
-			{
-				PVRSRV_ERROR eError = TimerTest();
-				if (psBridgePackageKM->ui32OutBufferSize == sizeof(PVRSRV_BRIDGE_RETURN))
-				{
-					PVRSRV_BRIDGE_RETURN* pReturn = (PVRSRV_BRIDGE_RETURN*)psBridgePackageKM->pvParamOut ;
-					pReturn->eError = eError;
-				}
-			}
-			err = 0;
-			goto unlock_and_return;
-
-		case PVRSRV_BRIDGE_SERVICES_TEST_PRIVSRV:
-			{
-				PVRSRV_ERROR eError = PrivSrvTest();
-				if (psBridgePackageKM->ui32OutBufferSize == sizeof(PVRSRV_BRIDGE_RETURN))
-				{
-					PVRSRV_BRIDGE_RETURN* pReturn = (PVRSRV_BRIDGE_RETURN*)psBridgePackageKM->pvParamOut ;
-					pReturn->eError = eError;
-				}
-			}
-			err = 0;
-			goto unlock_and_return;
-		case PVRSRV_BRIDGE_SERVICES_TEST_COPYDATA:
-		{
-			IMG_UINT32               ui32PID;
-			PVRSRV_PER_PROCESS_DATA *psPerProc;
-			PVRSRV_ERROR eError;
-			
-			ui32PID = OSGetCurrentProcessIDKM();
-		
-			PVRSRVTrace("PVRSRV_BRIDGE_SERVICES_TEST_COPYDATA %d", ui32PID);
-			
-			psPerProc = PVRSRVPerProcessData(ui32PID);
-						
-			eError = CopyDataTest(psBridgePackageKM->pvParamIn, psBridgePackageKM->pvParamOut, psPerProc);
-			
-			*(PVRSRV_ERROR*)psBridgePackageKM->pvParamOut = eError;
-			err = 0;
-			goto unlock_and_return;
-		}
-
-
-		case PVRSRV_BRIDGE_SERVICES_TEST_POWERMGMT:
-    			{
-				PVRSRV_ERROR eError = PowerMgmtTest();
-				if (psBridgePackageKM->ui32OutBufferSize == sizeof(PVRSRV_BRIDGE_RETURN))
-				{
-					PVRSRV_BRIDGE_RETURN* pReturn = (PVRSRV_BRIDGE_RETURN*)psBridgePackageKM->pvParamOut ;
-					pReturn->eError = eError;
-				}
-			}
-			err = 0;
-			goto unlock_and_return;
-
-	}
-#endif
 	
 	if(cmd != PVRSRV_BRIDGE_CONNECT_SERVICES)
 	{
@@ -478,7 +311,7 @@ PVRSRV_BridgeDispatchKM(struct file *pFile, IMG_UINT unref__ ioctlCmd, IMG_UINT3
 	}
 	else
 	{
-		
+		/* lookup per-process data for this process */
 		psPerProc = PVRSRVPerProcessData(ui32PID);
 		if(psPerProc == IMG_NULL)
 		{
@@ -490,23 +323,67 @@ PVRSRV_BridgeDispatchKM(struct file *pFile, IMG_UINT unref__ ioctlCmd, IMG_UINT3
 
 	psBridgePackageKM->ui32BridgeID = PVRSRV_GET_BRIDGE_ID(psBridgePackageKM->ui32BridgeID);
 
-	/*
-	 * FIXME: remove the following workaround, once all user space libraries
-	 * have a proper fix for this security issue.
-	 */
-	err = secure_fd_export_prepare(cmd, psBridgePackageKM->pvParamIn,
-				     priv_data->sec_fd_exp_meminfo);
-	if (err < 0)
-		goto unlock_and_return;
+	switch(cmd)
+	{
+		case PVRSRV_BRIDGE_EXPORT_DEVICEMEM_2:
+		{
+			PVRSRV_FILE_PRIVATE_DATA *psPrivateData = PRIVATE_DATA(pFile);
+
+			if(psPrivateData->hKernelMemInfo)
+			{
+				PVR_DPF((PVR_DBG_ERROR, "%s: Can only export one MemInfo "
+						 "per file descriptor", __FUNCTION__));
+				err = -EINVAL;
+				goto unlock_and_return;
+			}
+			break;
+		}
+
+		case PVRSRV_BRIDGE_MAP_DEV_MEMORY_2:
+		{
+			PVRSRV_BRIDGE_IN_MAP_DEV_MEMORY *psMapDevMemIN =
+				(PVRSRV_BRIDGE_IN_MAP_DEV_MEMORY *)psBridgePackageKM->pvParamIn;
+			PVRSRV_FILE_PRIVATE_DATA *psPrivateData = PRIVATE_DATA(pFile);
+
+			if(!psPrivateData->hKernelMemInfo)
+			{
+				PVR_DPF((PVR_DBG_ERROR, "%s: File descriptor has no "
+						 "associated MemInfo handle", __FUNCTION__));
+				err = -EINVAL;
+				goto unlock_and_return;
+			}
+
+			if (pvr_put_user(psPrivateData->hKernelMemInfo, &psMapDevMemIN->hKernelMemInfo) != 0)
+			{
+				err = -EFAULT;
+				goto unlock_and_return;
+			}
+			break;
+		}
+
+		default:
+		{
+			PVRSRV_FILE_PRIVATE_DATA *psPrivateData = PRIVATE_DATA(pFile);
+
+			if(psPrivateData->hKernelMemInfo)
+			{
+				PVR_DPF((PVR_DBG_ERROR, "%s: Import/Export handle tried "
+						 "to use privileged service", __FUNCTION__));
+				goto unlock_and_return;
+			}
+			break;
+		}
+	}
 
 #if defined(SUPPORT_DRI_DRM) && defined(PVR_SECURE_DRM_AUTH_EXPORT)
+
 	switch(cmd)
 	{
 		case PVRSRV_BRIDGE_MAP_DEV_MEMORY:
 		case PVRSRV_BRIDGE_MAP_DEVICECLASS_MEMORY:
 		{
 			PVRSRV_FILE_PRIVATE_DATA *psPrivateData;
-			IMG_INT authenticated = pFile->authenticated;
+			int authenticated = pFile->authenticated;
 			PVRSRV_ENV_PER_PROCESS_DATA *psEnvPerProc;
 
 			if (authenticated)
@@ -514,7 +391,13 @@ PVRSRV_BridgeDispatchKM(struct file *pFile, IMG_UINT unref__ ioctlCmd, IMG_UINT3
 				break;
 			}
 
-			
+			/*
+			 * The DRM file structure we are using for Services
+			 * is not one that DRI authentication was done on.
+			 * Look for an authenticated file structure for
+			 * this process, making sure the DRM master is the
+			 * same as ours.
+			 */
 			psEnvPerProc = (PVRSRV_ENV_PER_PROCESS_DATA *)PVRSRVProcessPrivateData(psPerProc);
 			if (psEnvPerProc == IMG_NULL)
 			{
@@ -548,28 +431,74 @@ PVRSRV_BridgeDispatchKM(struct file *pFile, IMG_UINT unref__ ioctlCmd, IMG_UINT3
 		default:
 			break;
 	}
-#endif 
+#endif /* defined(SUPPORT_DRI_DRM) && defined(PVR_SECURE_DRM_AUTH_EXPORT) */
 
 	err = BridgedDispatchKM(psPerProc, psBridgePackageKM);
 	if(err != PVRSRV_OK)
 		goto unlock_and_return;
 
-	/*
-	 * FIXME: remove the following workaround, once all user space libraries
-	 * have a proper fix for this security issue.
-	 */
-	secure_fd_export_finish(cmd, psBridgePackageKM->pvParamOut,
-				&priv_data->sec_fd_exp_meminfo,
-				&priv_data->ui64Stamp);
 	switch(cmd)
 	{
+		case PVRSRV_BRIDGE_EXPORT_DEVICEMEM_2:
+		{
+			PVRSRV_BRIDGE_OUT_EXPORTDEVICEMEM *psExportDeviceMemOUT =
+				(PVRSRV_BRIDGE_OUT_EXPORTDEVICEMEM *)psBridgePackageKM->pvParamOut;
+			PVRSRV_FILE_PRIVATE_DATA *psPrivateData = PRIVATE_DATA(pFile);
+			IMG_HANDLE hMemInfo;
+			PVRSRV_KERNEL_MEM_INFO *psKernelMemInfo;
+
+			if (pvr_get_user(hMemInfo, &psExportDeviceMemOUT->hMemInfo) != 0)
+			{
+				err = -EFAULT;
+				goto unlock_and_return;
+			}
+
+			/* Look up the meminfo we just exported */
+			if(PVRSRVLookupHandle(KERNEL_HANDLE_BASE,
+								  (IMG_PVOID *)&psKernelMemInfo,
+								  hMemInfo,
+								  PVRSRV_HANDLE_TYPE_MEM_INFO) != PVRSRV_OK)
+			{
+				PVR_DPF((PVR_DBG_ERROR, "%s: Failed to look up export handle", __FUNCTION__));
+				err = -EFAULT;
+				goto unlock_and_return;
+			}
+
+			/* Bump the refcount; decremented on release of the fd */
+			PVRSRVKernelMemInfoIncRef(psKernelMemInfo);
+
+			/* Tell the XProc about the export if required */
+			if (psKernelMemInfo->sShareMemWorkaround.bInUse)
+			{
+				BM_XProcIndexAcquire(psKernelMemInfo->sShareMemWorkaround.ui32ShareIndex);
+			}
+
+			psPrivateData->hKernelMemInfo = hMemInfo;
+#if defined(SUPPORT_MEMINFO_IDS)
+			psPrivateData->ui64Stamp = ++ui64Stamp;
+
+			psKernelMemInfo->ui64Stamp = psPrivateData->ui64Stamp;
+			if (pvr_put_user(psPrivateData->ui64Stamp, &psExportDeviceMemOUT->ui64Stamp) != 0)
+			{
+				err = -EFAULT;
+				goto unlock_and_return;
+			}
+#endif
+			break;
+		}
+
 #if defined(SUPPORT_MEMINFO_IDS)
 		case PVRSRV_BRIDGE_MAP_DEV_MEMORY:
+		case PVRSRV_BRIDGE_MAP_DEV_MEMORY_2:
 		{
 			PVRSRV_BRIDGE_OUT_MAP_DEV_MEMORY *psMapDeviceMemoryOUT =
 				(PVRSRV_BRIDGE_OUT_MAP_DEV_MEMORY *)psBridgePackageKM->pvParamOut;
 			PVRSRV_FILE_PRIVATE_DATA *psPrivateData = PRIVATE_DATA(pFile);
-			psMapDeviceMemoryOUT->sDstClientMemInfo.ui64Stamp =	psPrivateData->ui64Stamp;
+			if (pvr_put_user(psPrivateData->ui64Stamp, &psMapDeviceMemoryOUT->sDstClientMemInfo.ui64Stamp) != 0)
+			{
+				err = -EFAULT;
+				goto unlock_and_return;
+			}
 			break;
 		}
 
@@ -577,10 +506,14 @@ PVRSRV_BridgeDispatchKM(struct file *pFile, IMG_UINT unref__ ioctlCmd, IMG_UINT3
 		{
 			PVRSRV_BRIDGE_OUT_MAP_DEVICECLASS_MEMORY *psDeviceClassMemoryOUT =
 				(PVRSRV_BRIDGE_OUT_MAP_DEVICECLASS_MEMORY *)psBridgePackageKM->pvParamOut;
-			psDeviceClassMemoryOUT->sClientMemInfo.ui64Stamp = ++ui64Stamp;
+			if (pvr_put_user(++ui64Stamp, &psDeviceClassMemoryOUT->sClientMemInfo.ui64Stamp) != 0)
+			{
+				err = -EFAULT;
+				goto unlock_and_return;
+			}
 			break;
 		}
-#endif 
+#endif /* defined(SUPPORT_MEMINFO_IDS) */
 
 		default:
 			break;

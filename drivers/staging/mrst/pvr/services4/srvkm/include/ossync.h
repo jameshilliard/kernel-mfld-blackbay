@@ -31,7 +31,7 @@
 
 struct pvr_pending_sync;
 
-typedef void (*pvr_sync_callback)(struct pvr_pending_sync *pending_sync, bool from_misr);
+typedef void (*pvr_sync_callback)(struct pvr_pending_sync *pending_sync);
 
 struct pvr_pending_sync {
 	PVRSRV_KERNEL_SYNC_INFO *sync_info;

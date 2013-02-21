@@ -30,17 +30,19 @@
 static DEFINE_SPINLOCK(sync_lock);
 static LIST_HEAD(sync_list);
 
+#define ops_after(a, b) ((s32)(b) - (s32)(a) < 0)
+
 static bool pending_ops_completed(PVRSRV_KERNEL_SYNC_INFO *sync_info,
 				  unsigned int flags,
 				  u32 pending_read_ops,
 				  u32 pending_write_ops)
 {
 	if (flags & PVRSRV_SYNC_READ &&
-	    pvr_ops_after(pending_read_ops, sync_info->psSyncData->ui32ReadOpsComplete))
+	    ops_after(pending_read_ops, sync_info->psSyncData->ui32ReadOpsComplete))
 		return false;
 
 	if (flags & PVRSRV_SYNC_WRITE &&
-	    pvr_ops_after(pending_write_ops, sync_info->psSyncData->ui32WriteOpsComplete))
+	    ops_after(pending_write_ops, sync_info->psSyncData->ui32WriteOpsComplete))
 		return false;
 
 	return true;
@@ -66,7 +68,7 @@ PVRSRVCallbackOnSync2(struct pvr_pending_sync *pending_sync)
 	spin_unlock_irqrestore(&sync_lock, flags);
 
 	if (complete)
-		pending_sync->callback(pending_sync, false);
+		pending_sync->callback(pending_sync);
 }
 
 /* Returns 0 if the callback was successfully registered.
@@ -87,7 +89,17 @@ PVRSRVCallbackOnSync(PVRSRV_KERNEL_SYNC_INFO *sync_info,
 	pending_sync->flags = flags;
 	pending_sync->callback = callback;
 
-	PVRSRVCallbackOnSync2(pending_sync);
+	/* If the object is already in sync, don't add it to the list */
+	if (pending_ops_completed(sync_info, flags,
+				  pending_read_ops,
+				  pending_write_ops)) {
+		callback(pending_sync);
+		return;
+	}
+
+	spin_lock_irq(&sync_lock);
+	list_add_tail(&pending_sync->list, &sync_list);
+	spin_unlock_irq(&sync_lock);
 
 	return;
 }
@@ -114,6 +126,6 @@ PVRSRVCheckPendingSyncs(void)
 
 	/* Execute the callbacks */
 	list_for_each_entry_safe(ps, tmp, &completed_list, list)
-		ps->callback(ps, true);
+		ps->callback(ps);
 }
 

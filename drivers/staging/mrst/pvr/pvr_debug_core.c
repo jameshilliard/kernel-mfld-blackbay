@@ -100,12 +100,12 @@ int sgx_trigger_reset(PVRSRV_DEVICE_NODE *dev_node)
 	int r = 0;
 
 	err = PVRSRVSetDevicePowerStateKM(dev_node->sDevId.ui32DeviceIndex,
-					  PVRSRV_DEV_POWER_STATE_ON,
-					  KERNEL_ID, IMG_TRUE);
+					  PVRSRV_DEV_POWER_STATE_ON);
 	if (err != PVRSRV_OK)
 		return -EIO;
 
-	HWRecoveryResetSGXNoLock(dev_node);
+	//DAN: I'm guessing here
+	HWRecoveryResetSGX(dev_node, 0, ISR_ID);
 
 	PVRSRVPowerUnlock(KERNEL_ID);
 	/* power down if no activity */
@@ -128,8 +128,7 @@ int sgx_save_registers(PVRSRV_DEVICE_NODE *dev_node, struct sgx_registers *regs)
 	PVRSRV_ERROR err;
 
 	err = PVRSRVSetDevicePowerStateKM(dev_node->sDevId.ui32DeviceIndex,
-					  PVRSRV_DEV_POWER_STATE_ON,
-					  KERNEL_ID, IMG_TRUE);
+					  PVRSRV_DEV_POWER_STATE_ON);
 	if (err != PVRSRV_OK)
 		return -EIO;
 

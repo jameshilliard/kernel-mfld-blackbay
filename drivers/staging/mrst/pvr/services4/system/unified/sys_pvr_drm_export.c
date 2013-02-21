@@ -76,6 +76,7 @@ SYSPVRUnload(struct drm_device *dev)
 void
 SYSPVRPostClose(struct drm_device *dev, struct drm_file *file)
 {
+	//return PVRSRVDrmRelease(dev, file);
 	return PVRSRVDrmPostClose(dev, file);
 }
 

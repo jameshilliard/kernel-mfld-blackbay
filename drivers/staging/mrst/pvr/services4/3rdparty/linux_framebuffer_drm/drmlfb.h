@@ -46,7 +46,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <drm/drmP.h>
 #include "psb_intel_reg.h"
 
-#define MRST_USING_INTERRUPTS
+//#define MRST_USING_INTERRUPTS
 
 /*
  *VDC registers and bits

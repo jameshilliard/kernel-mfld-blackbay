@@ -100,7 +100,7 @@ ENVDIR = pvr/services4/srvkm/env/linux
 COMMONDIR = pvr/services4/srvkm/common
 BRIDGEDDIR = pvr/services4/srvkm/bridged
 SGXDIR = pvr/services4/srvkm/devices/sgx
-FBDEVDIR = pvr/services4/3rdparty/linux_framebuffer_drm
+FBDEVDIR = pvr/services4/3rdparty/linux_framebuffer_mrst
 DRMDRVDIR = drv
 SYSCONFIGDIR = pvr/services4/system/unified
 IMGVDIR = imgv
@@ -165,8 +165,8 @@ medfield_gfx-y += \
 	$(SGXDIR)/sgxutils.o
 
 medfield_gfx-y += \
-	$(FBDEVDIR)/drmlfb_displayclass.o \
-	$(FBDEVDIR)/drmlfb_linux.o
+	$(FBDEVDIR)/mrstlfb_displayclass.o \
+	$(FBDEVDIR)/mrstlfb_linux.o
 
 medfield_gfx-y += \
 	$(DRMDRVDIR)/drm_flip.o \

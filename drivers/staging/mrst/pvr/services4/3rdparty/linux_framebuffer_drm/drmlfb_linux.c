@@ -191,7 +191,7 @@ void MRSTLFBFlipToSurface(MRSTLFB_DEVINFO *psDevInfo,  unsigned long uiAddr)
 	int dspbase = (psDevInfo->ui32MainPipe == 0 ? MRST_DSPABASE : MRST_DSPBBASE);
 	int dspsurf = (psDevInfo->ui32MainPipe == 0 ? DSPASURF : DSPBSURF);
 
-	if (ospm_power_using_hw_begin(OSPM_DISPLAY_ISLAND, true))
+	if (in_atomic() ? ospm_power_using_hw_begin_atomic(OSPM_DISPLAY_ISLAND) : ospm_power_using_hw_begin(OSPM_DISPLAY_ISLAND, true))
 	{
 		if (IS_MRST(psDevInfo->psDrmDevice)) {
 			MRSTLFBVSyncWriteReg(psDevInfo, dspsurf, uiAddr);

@@ -183,7 +183,13 @@ static void DRMLFBFlipBuffer(MRSTLFB_DEVINFO *psDevInfo, MRSTLFB_SWAPCHAIN *psSw
 		psDevInfo->psCurrentSwapChain = psSwapChain;
 	}
 
-	
+	//make sure we don't flip to a NULL surface
+	if(psBuffer->sDevVAddr.uiAddr == NULL)
+	{
+		DEBUG_PRINTK((KERN_INFO DRIVER_PREFIX ": DRMLFBFlipBuffer: Aborting flip to surface with NULL address. Fixes \"VT Switch\" bug when waking up device.\n"));
+		return;
+	}
+
 	MRSTLFBFlip(psDevInfo, psBuffer);
 }
 

@@ -155,7 +155,7 @@ void MRSTLFBFlipToSurface(MRSTLFB_DEVINFO *psDevInfo,  unsigned long uiAddr)
 
 	panel_type = is_panel_vid_or_cmd(psDevInfo->psDrmDevice);
 
-	if (ospm_power_using_hw_begin(OSPM_DISPLAY_ISLAND, true))
+	if (in_atomic() ? ospm_power_using_hw_begin_atomic(OSPM_DISPLAY_ISLAND) : ospm_power_using_hw_begin(OSPM_DISPLAY_ISLAND, true))
 	{
 		dspsurf = DSPASURF;
 		MRSTLFBVSyncWriteReg(psDevInfo, dspsurf, uiAddr);

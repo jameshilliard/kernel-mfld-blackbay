@@ -1593,7 +1593,7 @@ IMG_VOID IMG_CALLCONV PVRSRVMISR(IMG_VOID *pvSysData)
 									&PVRSRVMISR_ForEachCb);
 
 	/* Process the queues. */
-	if (PVRSRVProcessQueues(IMG_FALSE) == PVRSRV_ERROR_PROCESSING_BLOCKED)
+	if (PVRSRVProcessQueues(IMG_TRUE) == PVRSRV_ERROR_PROCESSING_BLOCKED)
 	{
 		PVRSRVProcessQueues(IMG_FALSE);
 	}

@@ -1,3 +1,9 @@
+* Fri Jun 28 2013 Li Peng <peng.li@intel.com> submit/tizen_2.2/20130613.165241@e8072e7
+[ Daniel van der Wath ]
+- pvr: Fixed VT Switch bug when unlocking homescreen.
+- Fixed device hang when screen goes to sleep
+- pvr: Merge 1.9DDK
+
 * Mon May 27 2013 Heikki Krogerus <heikki.krogerus@linux.intel.com>
 - Fix TZSP-6500
   * Smack: add support for modification of existing rules
